@@ -8,94 +8,123 @@ on:
 
 jobs:
   build:
-    name: Build and Release fishBot
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write 
+    name: Build for ${{ matrix.os }} (${{ matrix.arch }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            goos: linux
+            goarch: amd64
+            arch: amd64
+          - os: ubuntu-latest
+            goos: linux
+            goarch: arm64
+            arch: arm64
+          - os: windows-latest
+            goos: windows
+            goarch: amd64
+            arch: amd64
+            binary_ext: .exe
+          - os: macos-latest
+            goos: darwin
+            goarch: amd64
+            arch: amd64
+          - os: macos-latest
+            goos: darwin
+            goarch: arm64
+            arch: arm64
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.24.1' 
+          go-version: '1.21' 
+
+      - name: Install Linux CGO dependencies (for Ubuntu)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libx11-dev libxtst-dev libpng-dev
+
+      - name: Install Windows CGO dependencies (for Windows)
+        if: runner.os == 'Windows'
+        run: choco install mingw
+
+      - name: Build binary
+        run: |
+          # The binary name for the artifact
+          BINARY_NAME="fishBot_${{ matrix.goos }}_${{ matrix.goarch }}${{ matrix.binary_ext }}"
+          
+          # Build the binary. GOOS and GOARCH are set automatically by the runner environment when not cross-compiling
+          go build -v -o "$BINARY_NAME" .
+        shell: bash
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: fishBot-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: fishBot_${{ matrix.goos }}_${{ matrix.goarch }}${{ matrix.binary_ext }}
+
+  release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    needs: build 
+    permissions:
+      contents: write 
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 
 
       - name: Get latest tag and determine new version
-        id: get_latest_tag
+        id: get_version
         run: |
           latest_tag=$(git tag -l 'v*' | sort -V | tail -n1)
           if [ -z "$latest_tag" ]; then
-            echo "version=v1.0.0" >> $GITHUB_OUTPUT
+            new_version="v1.0.0"
           else
-            current_version=$(echo $latest_tag | sed 's/v//') # Remove 'v' prefix
-            major=$(echo $current_version | cut -d. -f1)
-            minor=$(echo $current_version | cut -d. -f2)
+            # Remove 'v' prefix for version manipulation
+            current_version=$(echo "$latest_tag" | sed 's/v//')
             
-            if [[ "$current_version" == *.*.* ]]; then # If format is X.Y.Z
-              patch=$(echo $current_version | cut -d. -f3)
-              new_patch=$((patch + 1))
-              echo "version=v$major.$minor.$new_patch" >> $GITHUB_OUTPUT
-            elif [[ "$current_version" == *.* ]]; then # If format is X.Y
-              echo "version=v$major.$minor.0" >> $GITHUB_OUTPUT # Start patch at 0
-            else # If format is X (e.g. v15) or unknown, treat as major and start minor.patch
-              echo "version=v$major.0.0" >> $GITHUB_OUTPUT
-            fi
+            # Use awk for safer version incrementing
+            new_version=$(echo "$current_version" | awk -F. -v OFS=. '{ if (NF==1) $2=0; if (NF<=2) $3=0; $3+=1; print "v"$0 }')
           fi
-          echo "Determined new version: ${{ steps.get_latest_tag.outputs.version }}"
+          echo "version=$new_version" >> "$GITHUB_OUTPUT"
+
+      - name: Log the new version
+        run: echo "New version is ${{ steps.get_version.outputs.version }}"
 
       - name: Update version in main.go
         run: |
-          version_without_v=$(echo "${{ steps.get_latest_tag.outputs.version }}" | sed 's/v//')
-          # This updates the version string in: fmt.Println("--- Go Fishing Bot (v15 - Stabile UI-Erkennung) ---")
-          # It replaces the existing version number (e.g., "v15") with the new semantic version (e.g., "v1.0.0").
-          sed -i "s/--- Go Fishing Bot (v[^-]* - Stabile UI-Erkennung) ---/--- Go Fishing Bot (v${version_without_v} - Stabile UI-Erkennung) ---/g" main.go
+          version_without_v=$(echo "${{ steps.get_version.outputs.version }}" | sed 's/v//')
+          # This sed command is more robust. It looks for the pattern and replaces only the version number inside the parentheses.
+          sed -i 's/\(--- Go Fishing Bot (v\)[^)]*\() .*\)/\1'"$version_without_v"'\2/' main.go
           echo "Updated version in main.go to ${version_without_v}"
 
-      - name: Build binaries
-        run: |
-          VERSION="${{ steps.get_latest_tag.outputs.version }}"
-          # Windows
-          GOOS=windows GOARCH=amd64 go build -v -o "fishBot_${VERSION}_windows_amd64.exe" .
-          
-          # macOS
-          GOOS=darwin GOARCH=amd64 go build -v -o "fishBot_${VERSION}_darwin_amd64" .
-          GOOS=darwin GOARCH=arm64 go build -v -o "fishBot_${VERSION}_darwin_arm64" .
-          
-          # Linux
-          GOOS=linux GOARCH=amd64 go build -v -o "fishBot_${VERSION}_linux_amd64" .
-          GOOS=linux GOARCH=arm64 go build -v -o "fishBot_${VERSION}_linux_arm64" .
-          echo "Built binaries:"
-          ls -l fishBot_*
-
-      - name: Create Release
-        uses: softprops/action-gh-release@v1
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
         with:
-          tag_name: ${{ steps.get_latest_tag.outputs.version }}
-          name: fishBot Release ${{ steps.get_latest_tag.outputs.version }}
-          draft: true #
-          generate_release_notes: true 
+          path: dist
+      
+      - name: List downloaded files
+        run: |
+          echo "Downloaded files:"
+          ls -R dist
+
+      - name: Create Release and Upload Assets
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.get_version.outputs.version }}
+          name: fishBot ${{ steps.get_version.outputs.version }}
           body: |
-            # fishBot ${{ steps.get_latest_tag.outputs.version }}
-                        
-            ## Download the appropriate binary for your platform:
+            # fishBot Release ${{ steps.get_version.outputs.version }}
             
-            - Windows (amd64): fishBot_${{ steps.get_latest_tag.outputs.version }}_windows_amd64.exe
-            - macOS (Intel amd64): fishBot_${{ steps.get_latest_tag.outputs.version }}_darwin_amd64
-            - macOS (Apple Silicon arm64): fishBot_${{ steps.get_latest_tag.outputs.version }}_darwin_arm64
-            - Linux (x86_64 amd64): fishBot_${{ steps.get_latest_tag.outputs.version }}_linux_amd64
-            - Linux (ARM64 arm64): fishBot_${{ steps.get_latest_tag.outputs.version }}_linux_arm64
+            This is an automated release of the fishBot. Download the appropriate binary for your system below.
             
-            ## Changes in this release:
-            <!-- Review auto-generated notes or add your own -->
-          files: |
-            fishBot_${{ steps.get_latest_tag.outputs.version }}_windows_amd64.exe
-            fishBot_${{ steps.get_latest_tag.outputs.version }}_darwin_amd64
-            fishBot_${{ steps.get_latest_tag.outputs.version }}_darwin_arm64
-            fishBot_${{ steps.get_latest_tag.outputs.version }}_linux_amd64
-            fishBot_${{ steps.get_latest_tag.outputs.version }}_linux_arm64
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+            _Note: On macOS and Windows, you may need to grant permissions to run the application as it is not signed._
+          draft: false 
+          generate_release_notes: true
+          files: dist/**/* 
