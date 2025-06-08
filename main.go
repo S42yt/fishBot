@@ -83,7 +83,8 @@ func main() {
 				if analyzeImageForBite(img, redBox) {
 					fmt.Println("🐠 Biss-Signal erkannt! Klicke einmal...")
 					robotgo.Click("right")
-					
+					 time.Sleep(500 * time.Millisecond) // Removed delay
+
 				}
 			} else {
 				fmt.Println("🎣 Angel-Runde beendet. Werfe neu aus und warte...")
