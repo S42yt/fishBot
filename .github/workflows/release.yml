@@ -38,6 +38,7 @@ jobs:
 
       - name: Install Windows CGO dependencies
         if: runner.os == 'Windows'
+        shell: bash
         run: |
           for i in 1 2 3; do
             choco install mingw -y --no-progress && break
