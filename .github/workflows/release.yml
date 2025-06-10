@@ -44,20 +44,43 @@ jobs:
         with:
           go-version: '1.24.1' 
 
-      - name: Install Linux CGO dependencies (for Ubuntu)
+      - name: Install Linux CGO dependencies
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libx11-dev libxtst-dev libpng-dev
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y libx11-dev libxtst-dev libpng-dev
 
-      - name: Install Windows CGO dependencies (for Windows)
+      - name: Install Windows CGO dependencies
         if: runner.os == 'Windows'
-        run: choco install mingw
+        run: choco install mingw -y --no-progress
+        # choco should add MinGW to the PATH for subsequent steps.
+
+      - name: Check Go environment and C Compiler
+        shell: bash
+        run: |
+          echo "--- Go Environment ---"
+          go version
+          echo "go env CC: $(go env CC)"
+          echo "go env CXX: $(go env CXX)"
+          echo "go env CGO_ENABLED: $(go env CGO_ENABLED)"
+          echo "--- C Compiler Check (gcc) ---"
+          if command -v gcc &> /dev/null; then
+            echo "gcc found at: $(command -v gcc)"
+            gcc --version
+          else
+            echo "gcc not found in PATH"
+            if [[ "${{ runner.os }}" == "Windows" ]]; then
+              echo "Current PATH on Windows: $PATH"
+            fi
+          fi
 
       - name: Build binary
         run: |
           # The binary name for the artifact
           BINARY_NAME="fishBot_${{ matrix.goos }}_${{ matrix.goarch }}${{ matrix.binary_ext }}"
           
-          # Build the binary. GOOS and GOARCH are set automatically by the runner environment when not cross-compiling
+          echo "Building $BINARY_NAME..."
+          export CGO_ENABLED=1
           go build -v -o "$BINARY_NAME" .
         shell: bash
 
