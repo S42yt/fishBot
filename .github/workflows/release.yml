@@ -52,7 +52,17 @@ jobs:
 
       - name: Install Windows CGO dependencies
         if: runner.os == 'Windows'
-        run: choco install mingw -y --no-progress
+        run: |
+          for i in 1 2 3; do
+            choco install mingw -y --no-progress && break
+            echo "choco install mingw failed. Retrying attempt $i..."
+            sleep 5
+          done
+          # Ensure choco install succeeded
+          if ! command -v gcc &> /dev/null; then
+            echo "MinGW installation failed after multiple retries."
+            exit 1
+          fi
         # choco should add MinGW to the PATH for subsequent steps.
 
       - name: Check Go environment and C Compiler
