@@ -13,6 +13,8 @@ import (
 	hook "github.com/robotn/gohook"
 )
 
+var version = "dev" 
+
 type BotState int
 
 const (
@@ -239,7 +241,7 @@ func max(a, b int) int {
 }
 
 func main() {
-	fmt.Println("--- Go Fishing Bot (v17 - Schnell & Globaler Hotkey) ---")
+	fmt.Printf("--- Go Fishing Bot (%s - Schnell & Globaler Hotkey) ---\n", version)
 
 	roi, err := setupROI()
 	if err != nil {
