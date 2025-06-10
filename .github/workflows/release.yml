@@ -13,14 +13,6 @@ jobs:
     strategy:
       matrix:
         include:
-          - os: ubuntu-latest
-            goos: linux
-            goarch: amd64
-            arch: amd64
-          - os: ubuntu-latest
-            goos: linux
-            goarch: arm64
-            arch: arm64
           - os: windows-latest
             goos: windows
             goarch: amd64
@@ -42,22 +34,50 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.21' 
+          go-version: '1.24.1' 
 
-      - name: Install Linux CGO dependencies (for Ubuntu)
-        if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libx11-dev libxtst-dev libpng-dev
-
-      - name: Install Windows CGO dependencies (for Windows)
+      - name: Install Windows CGO dependencies
         if: runner.os == 'Windows'
-        run: choco install mingw
+        shell: bash
+        run: |
+          for i in 1 2 3; do
+            choco install mingw -y --no-progress && break
+            echo "choco install mingw failed. Retrying attempt $i..."
+            sleep 5
+          done
+          # Ensure choco install succeeded
+          if ! command -v gcc &> /dev/null; then
+            echo "MinGW installation failed after multiple retries."
+            exit 1
+          fi
+        # choco should add MinGW to the PATH for subsequent steps.
+
+      - name: Check Go environment and C Compiler
+        shell: bash
+        run: |
+          echo "--- Go Environment ---"
+          go version
+          echo "go env CC: $(go env CC)"
+          echo "go env CXX: $(go env CXX)"
+          echo "go env CGO_ENABLED: $(go env CGO_ENABLED)"
+          echo "--- C Compiler Check (gcc) ---"
+          if command -v gcc &> /dev/null; then
+            echo "gcc found at: $(command -v gcc)"
+            gcc --version
+          else
+            echo "gcc not found in PATH"
+            if [[ "${{ runner.os }}" == "Windows" ]]; then
+              echo "Current PATH on Windows: $PATH"
+            fi
+          fi
 
       - name: Build binary
         run: |
           # The binary name for the artifact
           BINARY_NAME="fishBot_${{ matrix.goos }}_${{ matrix.goarch }}${{ matrix.binary_ext }}"
           
-          # Build the binary. GOOS and GOARCH are set automatically by the runner environment when not cross-compiling
+          echo "Building $BINARY_NAME..."
+          export CGO_ENABLED=1
           go build -v -o "$BINARY_NAME" .
         shell: bash
 
@@ -100,9 +120,10 @@ jobs:
       - name: Update version in main.go
         run: |
           version_without_v=$(echo "${{ steps.get_version.outputs.version }}" | sed 's/v//')
-          # This sed command is more robust. It looks for the pattern and replaces only the version number inside the parentheses.
-          sed -i 's/\(--- Go Fishing Bot (v\)[^)]*\() .*\)/\1'"$version_without_v"'\2/' main.go
-          echo "Updated version in main.go to ${version_without_v}"
+          # Update the 'var version = "..."' line in main.go
+          # This command finds the line starting with 'var version = "' and replaces the content within the quotes.
+          sed -i 's/^\(var version = \)"[^"]*"/\1"'"$version_without_v"'"/' main.go
+          echo "Updated 'var version' in main.go to \"$version_without_v\""
 
       - name: Download all build artifacts
         uses: actions/download-artifact@v4
@@ -113,6 +134,15 @@ jobs:
         run: |
           echo "Downloaded files:"
           ls -R dist
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.1'
+
+      - name: Display Go environment
+        shell: bash
+        run: go env
 
       - name: Create Release and Upload Assets
         uses: softprops/action-gh-release@v2
@@ -127,4 +157,4 @@ jobs:
             _Note: On macOS and Windows, you may need to grant permissions to run the application as it is not signed._
           draft: false 
           generate_release_notes: true
-          files: dist/**/* 
+          files: dist/**/*
