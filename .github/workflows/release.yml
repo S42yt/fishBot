@@ -13,14 +13,6 @@ jobs:
     strategy:
       matrix:
         include:
-          - os: ubuntu-latest
-            goos: linux
-            goarch: amd64
-            arch: amd64
-          - os: ubuntu-latest
-            goos: linux
-            goarch: arm64
-            arch: arm64
           - os: windows-latest
             goos: windows
             goarch: amd64
@@ -43,12 +35,6 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: '1.24.1' 
-
-      - name: Install Linux CGO dependencies
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update -y
-          sudo apt-get install -y libx11-dev libxtst-dev libpng-dev
 
       - name: Install Windows CGO dependencies
         if: runner.os == 'Windows'
