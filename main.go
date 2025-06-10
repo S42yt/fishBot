@@ -5,10 +5,12 @@ import (
 	"image"
 	"image/color"
 	"log"
+	"sync"
 	"time"
 
 	"github.com/go-vgo/robotgo"
 	"github.com/kbinani/screenshot"
+	hook "github.com/robotn/gohook"
 )
 
 type BotState int
@@ -29,17 +31,24 @@ const (
 	IDLE_TIMEOUT = 3 * time.Minute
 )
 
-func main() {
-	fmt.Println("--- Go Fishing Bot (v15 - Stabile UI-Erkennung) ---")
+type Bot struct {
+	roi          image.Rectangle
+	state        BotState
+	lastCastTime time.Time
+	isPaused     bool       
+	mu           sync.Mutex 
+}
 
-	roi, err := setupROI()
-	if err != nil {
-		log.Fatalf("Fehler bei der ROI-Einrichtung: %v", err)
+func NewBot(roi image.Rectangle) *Bot {
+	return &Bot{
+		roi:          roi,
+		state:        IDLE,
+		lastCastTime: time.Now(),
+		isPaused:     false,
 	}
+}
 
-	fmt.Println("\n✅ Bereich erfolgreich definiert!")
-	fmt.Println(">>> Bot startet JETZT. Drücke im Terminal STRG+C zum Beenden.")
-
+func (b *Bot) Run() {
 	fmt.Println("🎣 Werfe Angel zum Start aus...")
 	robotgo.Click("right")
 	time.Sleep(2 * time.Second)
@@ -50,19 +59,23 @@ func main() {
 	fmt.Println("🔎 Warte auf Angel-Runde...")
 
 	for {
-		img, err := screenshot.CaptureRect(roi)
+		b.mu.Lock()
+		if b.isPaused {
+			b.mu.Unlock()
+			time.Sleep(100 * time.Millisecond)
+			continue
+		}
+		b.mu.Unlock()
+
+		img, err := screenshot.CaptureRect(b.roi)
 		if err != nil {
 			log.Printf("Fehler beim Erstellen des Screenshots: %v", err)
 			time.Sleep(1 * time.Second)
 			continue
 		}
 
-		
 		redBox, redFound := findRedBoundingBox(img)
 
-		
-		
-		
 		isUIActive := redFound && redBox.Dx() > 8 && redBox.Dy() > 8
 
 		if currentState == IDLE {
@@ -79,11 +92,11 @@ func main() {
 			}
 		} else if currentState == FISHING {
 			if isUIActive {
-				
+
 				if analyzeImageForBite(img, redBox) {
 					fmt.Println("🐠 Biss-Signal erkannt! Klicke einmal...")
 					robotgo.Click("right")
-					 time.Sleep(500 * time.Millisecond) // Removed delay
+					time.Sleep(500 * time.Millisecond) 
 
 				}
 			} else {
@@ -98,7 +111,6 @@ func main() {
 		time.Sleep(50 * time.Millisecond)
 	}
 }
-
 
 func analyzeImageForBite(img *image.RGBA, redBox image.Rectangle) bool {
 	return isSurroundedByWhite(img, redBox)
@@ -180,3 +192,97 @@ func setupROI() (image.Rectangle, error) {
 	return rect, nil
 }
 
+func (b *Bot) listenForPauseToggle() {
+	fmt.Println("\n▶️  Globale Hotkey-Überwachung für Taste 'P' wird gestartet...")
+
+	hook.Register(hook.KeyDown, []string{"p"}, func(e hook.Event) {
+		b.mu.Lock()
+		b.isPaused = !b.isPaused 
+		if b.isPaused {
+
+			fmt.Print("\r⏸️  Bot pausiert. Drücke 'P' zum Fortsetzen.                     ")
+		} else {
+			fmt.Print("\r▶️  Bot wird fortgesetzt...                                    ")
+		}
+		b.mu.Unlock()
+	})
+
+	s := hook.Start()
+
+	defer hook.End()
+
+	<-hook.Process(s)
+}
+
+func (b *Bot) Tick() {
+
+	b.mu.Lock()
+	paused := b.isPaused
+	b.mu.Unlock()
+
+	if paused { 
+		return
+	}
+
+	img, err := screenshot.CaptureRect(b.roi)
+	if err != nil {
+		log.Printf("Fehler beim Erstellen des Screenshots: %v", err)
+		time.Sleep(1 * time.Second)
+		return
+	}
+
+	redBox, redFound := findRedBoundingBox(img)
+
+	isUIActive := redFound && redBox.Dx() > 8 && redBox.Dy() > 8
+
+	if b.state == IDLE {
+		if isUIActive {
+			fmt.Println("✅ Angel-Runde erkannt! Starte aktives Angeln...")
+			b.state = FISHING
+		} else {
+			if time.Since(b.lastCastTime) > IDLE_TIMEOUT {
+				fmt.Println("⏰ 3-Minuten-Timeout! Nichts passiert. Werfe zur Sicherheit neu aus...")
+				robotgo.Click("right")
+				b.lastCastTime = time.Now()
+				time.Sleep(2 * time.Second)
+			}
+		}
+	} else if b.state == FISHING {
+		if isUIActive {
+
+			if analyzeImageForBite(img, redBox) {
+				fmt.Println("🐠 Biss-Signal erkannt! Klicke einmal...")
+				robotgo.Click("right")
+				time.Sleep(500 * time.Millisecond) 
+
+			}
+		} else {
+			fmt.Println("🎣 Angel-Runde beendet. Werfe neu aus und warte...")
+			robotgo.Click("right")
+			b.lastCastTime = time.Now()
+			b.state = IDLE
+			time.Sleep(2 * time.Second)
+		}
+	}
+
+	time.Sleep(50 * time.Millisecond)
+}
+
+func main() {
+	fmt.Println("--- Go Fishing Bot (v15 - Stabile UI-Erkennung) ---")
+
+	roi, err := setupROI()
+	if err != nil {
+		log.Fatalf("Fehler bei der ROI-Einrichtung: %v", err)
+	}
+
+	fmt.Println("\n✅ Bereich erfolgreich definiert!")
+
+	bot := NewBot(roi)
+
+	go bot.listenForPauseToggle() 
+
+	fmt.Println(">>> Bot startet JETZT. Drücke 'P' zum Pausieren und im Terminal STRG+C zum Beenden.")
+
+	bot.Run()
+}

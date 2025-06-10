@@ -5,6 +5,7 @@ go 1.24.1
 require (
 	github.com/go-vgo/robotgo v0.110.8
 	github.com/kbinani/screenshot v0.0.0-20250118074034-a3924b7bbc8c
+	github.com/robotn/gohook v0.42.2
 )
 
 require (
