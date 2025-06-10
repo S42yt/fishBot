@@ -42,7 +42,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.21' 
+          go-version: '1.24.1' 
 
       - name: Install Linux CGO dependencies (for Ubuntu)
         if: runner.os == 'Linux'
@@ -100,9 +100,10 @@ jobs:
       - name: Update version in main.go
         run: |
           version_without_v=$(echo "${{ steps.get_version.outputs.version }}" | sed 's/v//')
-          # This sed command is more robust. It looks for the pattern and replaces only the version number inside the parentheses.
-          sed -i 's/\(--- Go Fishing Bot (v\)[^)]*\() .*\)/\1'"$version_without_v"'\2/' main.go
-          echo "Updated version in main.go to ${version_without_v}"
+          # Update the 'var version = "..."' line in main.go
+          # This command finds the line starting with 'var version = "' and replaces the content within the quotes.
+          sed -i 's/^\(var version = \)"[^"]*"/\1"'"$version_without_v"'"/' main.go
+          echo "Updated 'var version' in main.go to \"$version_without_v\""
 
       - name: Download all build artifacts
         uses: actions/download-artifact@v4
@@ -127,4 +128,4 @@ jobs:
             _Note: On macOS and Windows, you may need to grant permissions to run the application as it is not signed._
           draft: false 
           generate_release_notes: true
-          files: dist/**/* 
+          files: dist/**/*
