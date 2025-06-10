@@ -78,7 +78,7 @@ jobs:
           
           echo "Building $BINARY_NAME..."
           export CGO_ENABLED=1
-          go build -v -o "$BINARY_NAME" .
+          go build -v -ldflags="-s -w" -o "$BINARY_NAME" .
         shell: bash
 
       - name: Upload artifact
