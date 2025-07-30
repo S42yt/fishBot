@@ -28,7 +28,8 @@ jobs:
             libxext-dev \
             libxrandr-dev \
             libxi-dev \
-            libx11-xcb-dev
+            libx11-xcb-dev \
+            libxkbcommon-dev
 
       - name: Build Binaries
         run: |
