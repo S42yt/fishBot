@@ -118,4 +118,4 @@ jobs:
             Automated release from master branch.
 
             _Note: macOS and Windows binaries are unsigned. Grant execution permission if needed._
-          files: dist/**/*
+          files: dist/**/*.*
