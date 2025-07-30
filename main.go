@@ -260,8 +260,6 @@ func (b *Bot) Tick() {
 		} else {
 			fmt.Println("🎣 Angel-Runde beendet. Werfe neu aus und warte...")
 			rand.Seed(time.Now().UnixNano())
-    			min := 1
-    			max := 3
 			time.Sleep((rand.Float64() * 3 + 1) * time.Second)
 			robotgo.Click("right")
 			b.lastCastTime = time.Now()
